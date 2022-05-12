@@ -17,6 +17,7 @@ import sys
 py39 = sys.version_info >= (3, 9)
 py38 = sys.version_info >= (3, 8)
 py37 = sys.version_info >= (3, 7)
+py36 = sys.version_info >= (3, 6)
 py3k = sys.version_info >= (3, 0)
 py2k = sys.version_info < (3, 0)
 pypy = platform.python_implementation() == "PyPy"
@@ -448,7 +449,7 @@ else:
     import collections as collections_abc  # noqa
 
 
-if py37:
+if py36:
     import dataclasses
 
     def dataclass_fields(cls):
