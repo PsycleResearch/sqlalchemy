@@ -283,7 +283,7 @@ Remote-Schema Table Introspection and PostgreSQL search_path
     attribute set up.
 
 The PostgreSQL dialect can reflect tables from any schema, as outlined in
-:ref:`schema_table_reflection`.
+:ref:`metadata_reflection_schemas`.
 
 With regards to tables which these :class:`_schema.Table`
 objects refer to via foreign key constraint, a decision must be made as to how
@@ -409,7 +409,7 @@ which is in the ``public`` (i.e. default) schema will always have the
     from a backend-agnostic perspective
 
     `The Schema Search Path
-    <https://www.postgresql.org/docs/9.0/static/ddl-schemas.html#DDL-SCHEMAS-PATH>`_
+    <https://www.postgresql.org/docs/current/static/ddl-schemas.html#DDL-SCHEMAS-PATH>`_
     - on the PostgreSQL website.
 
 INSERT/UPDATE...RETURNING
@@ -735,7 +735,7 @@ produces a statement equivalent to::
     It's important to remember that text searching in PostgreSQL is powerful but complicated,
     and SQLAlchemy users are advised to reference the PostgreSQL documentation
     regarding
-    `Full Text Search <https://www.postgresql.org/docs/13/textsearch-controls.html>`_.
+    `Full Text Search <https://www.postgresql.org/docs/current/textsearch-controls.html>`_.
 
     There are important differences between ``to_tsquery`` and
     ``plainto_tsquery``, the most significant of which is that ``to_tsquery``
@@ -788,6 +788,11 @@ produces a statement equivalent to::
 It is recommended that you use the ``EXPLAIN ANALYZE...`` tool from
 PostgreSQL to ensure that you are generating queries with SQLAlchemy that
 take full advantage of any indexes you may have created for full text search.
+
+.. seealso::
+
+    `Full Text Search <https://www.postgresql.org/docs/current/textsearch-controls.html>`_ - in the PostgreSQL documentation
+
 
 FROM ONLY ...
 -------------
@@ -849,7 +854,7 @@ Operator Classes
 
 PostgreSQL allows the specification of an *operator class* for each column of
 an index (see
-https://www.postgresql.org/docs/8.3/interactive/indexes-opclass.html).
+https://www.postgresql.org/docs/current/interactive/indexes-opclass.html).
 The :class:`.Index` construct allows these to be specified via the
 ``postgresql_ops`` keyword argument::
 
@@ -891,7 +896,7 @@ Index Types
 
 PostgreSQL provides several index types: B-Tree, Hash, GiST, and GIN, as well
 as the ability for users to create their own (see
-https://www.postgresql.org/docs/8.3/static/indexes-types.html). These can be
+https://www.postgresql.org/docs/current/static/indexes-types.html). These can be
 specified on :class:`.Index` using the ``postgresql_using`` keyword argument::
 
     Index('my_index', my_table.c.data, postgresql_using='gin')
@@ -2530,7 +2535,7 @@ class PGCompiler(compiler.SQLCompiler):
                     value.type = c.type
             value_text = self.process(value.self_group(), use_schema=False)
 
-            key_text = self.preparer.quote(col_key)
+            key_text = self.preparer.quote(c.name)
             action_set_ops.append("%s = %s" % (key_text, value_text))
 
         # check for names that don't match columns

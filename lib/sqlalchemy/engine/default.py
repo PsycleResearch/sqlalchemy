@@ -988,13 +988,15 @@ class DefaultExecutionContext(interfaces.ExecutionContext):
         if not parameters:
             self.compiled_parameters = [
                 compiled.construct_params(
-                    extracted_parameters=extracted_parameters
+                    extracted_parameters=extracted_parameters,
+                    escape_names=False,
                 )
             ]
         else:
             self.compiled_parameters = [
                 compiled.construct_params(
                     m,
+                    escape_names=False,
                     _group_number=grp,
                     extracted_parameters=extracted_parameters,
                 )
@@ -1079,21 +1081,44 @@ class DefaultExecutionContext(interfaces.ExecutionContext):
             if encode:
                 encoder = dialect._encoder
             for compiled_params in self.compiled_parameters:
+                escaped_bind_names = compiled.escaped_bind_names
 
                 if encode:
-                    param = {
-                        encoder(key)[0]: processors[key](compiled_params[key])
-                        if key in processors
-                        else compiled_params[key]
-                        for key in compiled_params
-                    }
+                    if escaped_bind_names:
+                        param = {
+                            encoder(escaped_bind_names.get(key, key))[
+                                0
+                            ]: processors[key](compiled_params[key])
+                            if key in processors
+                            else compiled_params[key]
+                            for key in compiled_params
+                        }
+                    else:
+                        param = {
+                            encoder(key)[0]: processors[key](
+                                compiled_params[key]
+                            )
+                            if key in processors
+                            else compiled_params[key]
+                            for key in compiled_params
+                        }
                 else:
-                    param = {
-                        key: processors[key](compiled_params[key])
-                        if key in processors
-                        else compiled_params[key]
-                        for key in compiled_params
-                    }
+                    if escaped_bind_names:
+                        param = {
+                            escaped_bind_names.get(key, key): processors[key](
+                                compiled_params[key]
+                            )
+                            if key in processors
+                            else compiled_params[key]
+                            for key in compiled_params
+                        }
+                    else:
+                        param = {
+                            key: processors[key](compiled_params[key])
+                            if key in processors
+                            else compiled_params[key]
+                            for key in compiled_params
+                        }
 
                 parameters.append(param)
 

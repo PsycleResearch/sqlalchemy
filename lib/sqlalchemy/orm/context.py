@@ -676,10 +676,6 @@ class ORMSelectCompileState(ORMCompileState, SelectState):
         else:
             self.label_style = self.select_statement._label_style
 
-        self._label_convention = self._column_naming_convention(
-            statement._label_style, self.use_legacy_query_style
-        )
-
         if select_statement._memoized_select_entities:
             self._memoized_entities = {
                 memoized_entities: _QueryEntity.to_compile_state(
@@ -692,6 +688,14 @@ class ORMSelectCompileState(ORMCompileState, SelectState):
                     select_statement._memoized_select_entities
                 )
             }
+
+        # label_convention is stateful and will yield deduping keys if it
+        # sees the same key twice.  therefore it's important that it is not
+        # invoked for the above "memoized" entities that aren't actually
+        # in the columns clause
+        self._label_convention = self._column_naming_convention(
+            statement._label_style, self.use_legacy_query_style
+        )
 
         _QueryEntity.to_compile_state(
             self,
@@ -1240,6 +1244,8 @@ class ORMSelectCompileState(ORMCompileState, SelectState):
         correlate_except,
         limit_clause,
         offset_clause,
+        fetch_clause,
+        fetch_clause_options,
         distinct,
         distinct_on,
         prefixes,
@@ -1272,6 +1278,8 @@ class ORMSelectCompileState(ORMCompileState, SelectState):
 
         statement._limit_clause = limit_clause
         statement._offset_clause = offset_clause
+        statement._fetch_clause = fetch_clause
+        statement._fetch_clause_options = fetch_clause_options
 
         if prefixes:
             statement._prefixes = prefixes
@@ -2186,6 +2194,10 @@ class ORMSelectCompileState(ORMCompileState, SelectState):
             "prefixes": self.select_statement._prefixes,
             "suffixes": self.select_statement._suffixes,
             "group_by": self.group_by or None,
+            "fetch_clause": self.select_statement._fetch_clause,
+            "fetch_clause_options": (
+                self.select_statement._fetch_clause_options
+            ),
         }
 
     @property
@@ -2444,11 +2456,15 @@ class _QueryEntity(object):
                             entity._select_iterable,
                             entities_collection,
                             idx,
+                            is_current_entities,
                         )
                 else:
                     if entity._annotations.get("bundle", False):
                         _BundleEntity(
-                            compile_state, entity, entities_collection
+                            compile_state,
+                            entity,
+                            entities_collection,
+                            is_current_entities,
                         )
                     elif entity._is_clause_list:
                         # this is legacy only - test_composites.py
@@ -2458,10 +2474,15 @@ class _QueryEntity(object):
                             entity._select_iterable,
                             entities_collection,
                             idx,
+                            is_current_entities,
                         )
                     else:
                         _ColumnEntity._for_columns(
-                            compile_state, [entity], entities_collection, idx
+                            compile_state,
+                            [entity],
+                            entities_collection,
+                            idx,
+                            is_current_entities,
                         )
             elif entity.is_bundle:
                 _BundleEntity(compile_state, entity, entities_collection)
@@ -2666,6 +2687,7 @@ class _BundleEntity(_QueryEntity):
         compile_state,
         expr,
         entities_collection,
+        is_current_entities,
         setup_entities=True,
         parent_bundle=None,
     ):
@@ -2696,6 +2718,7 @@ class _BundleEntity(_QueryEntity):
                         compile_state,
                         expr,
                         entities_collection,
+                        is_current_entities,
                         parent_bundle=self,
                     )
                 elif isinstance(expr, Bundle):
@@ -2703,6 +2726,7 @@ class _BundleEntity(_QueryEntity):
                         compile_state,
                         expr,
                         entities_collection,
+                        is_current_entities,
                         parent_bundle=self,
                     )
                 else:
@@ -2711,6 +2735,7 @@ class _BundleEntity(_QueryEntity):
                         [expr],
                         entities_collection,
                         None,
+                        is_current_entities,
                         parent_bundle=self,
                     )
 
@@ -2784,6 +2809,7 @@ class _ColumnEntity(_QueryEntity):
         columns,
         entities_collection,
         raw_column_index,
+        is_current_entities,
         parent_bundle=None,
     ):
         for column in columns:
@@ -2803,6 +2829,7 @@ class _ColumnEntity(_QueryEntity):
                         entities_collection,
                         _entity,
                         raw_column_index,
+                        is_current_entities,
                         parent_bundle=parent_bundle,
                     )
                 else:
@@ -2812,6 +2839,7 @@ class _ColumnEntity(_QueryEntity):
                         entities_collection,
                         _entity,
                         raw_column_index,
+                        is_current_entities,
                         parent_bundle=parent_bundle,
                     )
             else:
@@ -2820,6 +2848,7 @@ class _ColumnEntity(_QueryEntity):
                     column,
                     entities_collection,
                     raw_column_index,
+                    is_current_entities,
                     parent_bundle=parent_bundle,
                 )
 
@@ -2910,12 +2939,14 @@ class _RawColumnEntity(_ColumnEntity):
         column,
         entities_collection,
         raw_column_index,
+        is_current_entities,
         parent_bundle=None,
     ):
         self.expr = column
         self.raw_column_index = raw_column_index
         self.translate_raw_column = raw_column_index is not None
-        if column._is_text_clause:
+
+        if not is_current_entities or column._is_text_clause:
             self._label_name = None
         else:
             self._label_name = compile_state._label_convention(column)
@@ -2974,6 +3005,7 @@ class _ORMColumnEntity(_ColumnEntity):
         entities_collection,
         parententity,
         raw_column_index,
+        is_current_entities,
         parent_bundle=None,
     ):
         annotations = column._annotations
@@ -3000,9 +3032,13 @@ class _ORMColumnEntity(_ColumnEntity):
             self.translate_raw_column = raw_column_index is not None
 
         self.raw_column_index = raw_column_index
-        self._label_name = compile_state._label_convention(
-            column, col_name=orm_key
-        )
+
+        if is_current_entities:
+            self._label_name = compile_state._label_convention(
+                column, col_name=orm_key
+            )
+        else:
+            self._label_name = None
 
         _entity._post_inspect
         self.entity_zero = self.entity_zero_or_selectable = ezero = _entity

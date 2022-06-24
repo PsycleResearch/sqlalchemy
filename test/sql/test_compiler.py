@@ -25,6 +25,7 @@ from sqlalchemy import Column
 from sqlalchemy import Date
 from sqlalchemy import desc
 from sqlalchemy import distinct
+from sqlalchemy import Enum
 from sqlalchemy import exc
 from sqlalchemy import except_
 from sqlalchemy import exists
@@ -96,6 +97,7 @@ from sqlalchemy.testing import is_
 from sqlalchemy.testing import is_true
 from sqlalchemy.testing import mock
 from sqlalchemy.testing import ne_
+from sqlalchemy.testing.schema import pep435_enum
 from sqlalchemy.util import u
 
 table1 = table(
@@ -3206,7 +3208,7 @@ class SelectTest(fixtures.TestBase, AssertsCompiledSQL):
             (exprs[1], "hoho", "hoho(mytable.myid)", "hoho_1"),
             (
                 exprs[2],
-                "_no_label",
+                "name",
                 "CAST(mytable.name AS NUMERIC)",
                 "name",  # due to [ticket:4449]
             ),
@@ -3230,6 +3232,7 @@ class SelectTest(fixtures.TestBase, AssertsCompiledSQL):
                 t = table1
 
             s1 = select(col).select_from(t)
+            eq_(col._proxy_key, key if key != "_no_label" else None)
             eq_(list(s1.subquery().c.keys()), [key])
 
             if lbl:
@@ -3654,6 +3657,97 @@ class BindParameterTest(AssertsCompiledSQL, fixtures.TestBase):
             str,
             s,
         )
+
+    def test_bind_param_escaping(self):
+        """general bind param escape unit tests added as a result of
+        #8053.
+
+        The final application of an escaped param name
+        was moved out of compiler and into DefaultExecutionContext in
+        related issue #8056.
+
+        However in #8113 we made this conditional to suit usage recipes
+        posted in the FAQ.
+
+
+        """
+
+        SomeEnum = pep435_enum("SomeEnum")
+        one = SomeEnum("one", 1)
+        SomeEnum("two", 2)
+
+        t = Table(
+            "t",
+            MetaData(),
+            Column("_id", Integer, primary_key=True),
+            Column("_data", Enum(SomeEnum)),
+        )
+
+        class MyCompiler(compiler.SQLCompiler):
+            def bindparam_string(self, name, **kw):
+                kw["escaped_from"] = name
+                return super(MyCompiler, self).bindparam_string(
+                    '"%s"' % name, **kw
+                )
+
+        dialect = default.DefaultDialect()
+        dialect.statement_compiler = MyCompiler
+
+        self.assert_compile(
+            t.insert(),
+            'INSERT INTO t (_id, _data) VALUES (:"_id", :"_data")',
+            dialect=dialect,
+        )
+
+        compiled = t.insert().compile(
+            dialect=dialect, compile_kwargs=dict(compile_keys=("_id", "_data"))
+        )
+
+        # not escaped
+        params = compiled.construct_params(
+            {"_id": 1, "_data": one}, escape_names=False
+        )
+        eq_(params, {"_id": 1, "_data": one})
+
+        # escaped by default
+        params = compiled.construct_params({"_id": 1, "_data": one})
+        eq_(params, {'"_id"': 1, '"_data"': one})
+
+        # escaped here as well
+        eq_(compiled.params, {'"_data"': None, '"_id"': None})
+
+        # bind processors aren't part of this
+        eq_(compiled._bind_processors, {"_data": mock.ANY})
+
+        dialect.paramstyle = "pyformat"
+        compiled = t.insert().compile(
+            dialect=dialect, compile_kwargs=dict(compile_keys=("_id", "_data"))
+        )
+
+        # FAQ recipe works
+        eq_(
+            compiled.string % compiled.params,
+            "INSERT INTO t (_id, _data) VALUES (None, None)",
+        )
+
+    def test_expanding_non_expanding_conflict(self):
+        """test #8018"""
+
+        s = select(
+            literal("x").in_(bindparam("q")),
+            bindparam("q"),
+        )
+
+        with expect_raises_message(
+            exc.CompileError,
+            r"Can't reuse bound parameter name 'q' in both 'expanding' "
+            r"\(e.g. within an IN expression\) and non-expanding contexts.  "
+            "If this parameter is to "
+            "receive a list/array value, set 'expanding=True' on "
+            "it for expressions that aren't IN, otherwise use "
+            "a different parameter name.",
+        ):
+            str(s)
 
     def test_unique_binds_no_clone_collision(self):
         """test #6824"""

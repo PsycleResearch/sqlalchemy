@@ -15,6 +15,7 @@ from sqlalchemy.orm import lazyload
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import state as sa_state
 from sqlalchemy.orm import subqueryload
+from sqlalchemy.orm import with_loader_criteria
 from sqlalchemy.orm import with_polymorphic
 from sqlalchemy.orm.collections import attribute_mapped_collection
 from sqlalchemy.orm.collections import column_mapped_collection
@@ -23,10 +24,12 @@ from sqlalchemy.testing import eq_
 from sqlalchemy.testing import fixtures
 from sqlalchemy.testing.fixtures import fixture_session
 from sqlalchemy.testing.pickleable import Address
+from sqlalchemy.testing.pickleable import AddressWMixin
 from sqlalchemy.testing.pickleable import Child1
 from sqlalchemy.testing.pickleable import Child2
 from sqlalchemy.testing.pickleable import Dingaling
 from sqlalchemy.testing.pickleable import EmailUser
+from sqlalchemy.testing.pickleable import Mixin
 from sqlalchemy.testing.pickleable import Order
 from sqlalchemy.testing.pickleable import Parent
 from sqlalchemy.testing.pickleable import Screen
@@ -41,6 +44,10 @@ from .inheritance._poly_fixtures import Company
 from .inheritance._poly_fixtures import Engineer
 from .inheritance._poly_fixtures import Manager
 from .inheritance._poly_fixtures import Person
+
+
+def no_ed_foo(cls):
+    return cls.email_address != "ed@foo.com"
 
 
 class PickleTest(fixtures.MappedTest):
@@ -323,6 +330,51 @@ class PickleTest(fixtures.MappedTest):
         u2 = copy.deepcopy(u1)
         u2.addresses.append(Address())
         eq_(len(u2.addresses), 2)
+
+    @testing.requires.python3
+    @testing.combinations(True, False, argnames="pickle_it")
+    @testing.combinations(True, False, argnames="use_mixin")
+    def test_loader_criteria(self, pickle_it, use_mixin):
+        """test #8109"""
+
+        users, addresses = (self.tables.users, self.tables.addresses)
+
+        AddressCls = AddressWMixin if use_mixin else Address
+
+        self.mapper_registry.map_imperatively(
+            User,
+            users,
+            properties={"addresses": relationship(AddressCls)},
+        )
+
+        self.mapper_registry.map_imperatively(AddressCls, addresses)
+
+        with fixture_session(expire_on_commit=False) as sess:
+            u1 = User(name="ed")
+            u1.addresses = [
+                AddressCls(email_address="ed@bar.com"),
+                AddressCls(email_address="ed@foo.com"),
+            ]
+            sess.add(u1)
+            sess.commit()
+
+        with fixture_session(expire_on_commit=False) as sess:
+            # note that non-lambda is not picklable right now as
+            # SQL expressions usually can't be pickled.
+            opt = with_loader_criteria(
+                Mixin if use_mixin else Address,
+                no_ed_foo,
+                include_aliases=True,
+            )
+
+            u1 = sess.query(User).options(opt).first()
+
+            if pickle_it:
+                u1 = pickle.loads(pickle.dumps(u1))
+                sess.close()
+                sess.add(u1)
+
+            eq_([ad.email_address for ad in u1.addresses], ["ed@bar.com"])
 
     @testing.requires.non_broken_pickle
     def test_instance_deferred_cols(self):

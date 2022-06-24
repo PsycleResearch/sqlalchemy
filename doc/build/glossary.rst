@@ -74,6 +74,34 @@ Glossary
             # Session returns a Result that has ORM entities
             list_of_users = result.scalars().all()
 
+
+    reflection
+    reflected
+        In SQLAlchemy, this term refers to the feature of querying a database's
+        schema catalogs in order to load information about existing tables,
+        columns, constraints, and other constructs.   SQLAlchemy includes
+        features that can both provide raw data for this information, as well
+        as that it can construct Core/ORM usable :class:`.Table` objects
+        from database schema catalogs automatically.
+
+        .. seealso::
+
+            :ref:`metadata_reflection_toplevel` - complete background on
+            database reflection.
+
+
+    imperative
+    declarative
+
+        In the SQLAlchemy ORM, these terms refer to two different styles of
+        mapping Python classes to database tables.
+
+        .. seealso::
+
+            :ref:`orm_declarative_mapping`
+
+            :ref:`orm_imperative_mapping`
+
     facade
 
         An object that serves as a front-facing interface masking more complex
@@ -146,7 +174,7 @@ Glossary
 
             `bind parameters <https://use-the-index-luke.com/sql/where-clause/bind-parameters>`_ - at Use The Index, Luke!
 
-
+            :ref:`tutorial_sending_parameters` - in the :ref:`unified_tutorial`
 
     selectable
         A term used in SQLAlchemy to describe a SQL construct that represents
@@ -1503,6 +1531,14 @@ Glossary
         The detached state is generally used when objects are being
         moved between sessions or when being moved to/from an external
         object cache.
+
+        .. seealso::
+
+            :ref:`session_object_states`
+
+    attached
+        Indicates an ORM object that is presently associated with a specific
+        :term:`Session`.
 
         .. seealso::
 

@@ -14,6 +14,283 @@ This document details individual issue-level changes made throughout
 
 
 .. changelog::
+    :version: 1.4.38
+    :released: June 23, 2022
+
+    .. change::
+        :tags: bug, orm, regression
+        :tickets: 8162
+
+        Fixed regression caused by :ticket:`8064` where a particular check for
+        column correspondence was made too liberal, resulting in incorrect
+        rendering for some ORM subqueries such as those using
+        :meth:`.PropComparator.has` or :meth:`.PropComparator.any` in conjunction
+        with joined-inheritance queries that also use legacy aliasing features.
+
+    .. change::
+        :tags: bug, engine
+        :tickets: 8115
+
+        Repaired a deprecation warning class decorator that was preventing key
+        objects such as :class:`_engine.Connection` from having a proper
+        ``__weakref__`` attribute, causing operations like Python standard library
+        ``inspect.getmembers()`` to fail.
+
+
+    .. change::
+        :tags: bug, sql
+        :tickets: 8098
+
+        Fixed multiple observed race conditions related to :func:`.lambda_stmt`,
+        including an initial "dogpile" issue when a new Python code object is
+        initially analyzed among multiple simultaneous threads which created both a
+        performance issue as well as some internal corruption of state.
+        Additionally repaired observed race condition which could occur when
+        "cloning" an expression construct that is also in the process of being
+        compiled or otherwise accessed in a different thread due to memoized
+        attributes altering the ``__dict__`` while iterated, for Python versions
+        prior to 3.10; in particular the lambda SQL construct is sensitive to this
+        as it holds onto a single statement object persistently. The iteration has
+        been refined to use ``dict.copy()`` with or without an additional iteration
+        instead.
+
+    .. change::
+        :tags: bug, sql
+        :tickets: 8084
+
+        Enhanced the mechanism of :class:`.Cast` and other "wrapping"
+        column constructs to more fully preserve a wrapped :class:`.Label`
+        construct, including that the label name will be preserved in the
+        ``.c`` collection of a :class:`.Subquery`.  The label was already
+        able to render in the SQL correctly on the outside of the construct
+        which it was wrapped inside.
+
+    .. change::
+        :tags: bug, orm, sql
+        :tickets: 8091
+
+        Fixed an issue where :meth:`_sql.GenerativeSelect.fetch` would not
+        be applied when executing a statement using the ORM.
+
+    .. change::
+        :tags: bug, orm
+        :tickets: 8109
+
+        Fixed issue where a :func:`_orm.with_loader_criteria` option could not be
+        pickled, as is necessary when it is carried along for propagation to lazy
+        loaders in conjunction with a caching scheme. Currently, the only form that
+        is supported as picklable is to pass the "where criteria" as a fixed
+        module-level callable function that produces a SQL expression. An ad-hoc
+        "lambda" can't be pickled, and a SQL expression object is usually not fully
+        picklable directly.
+
+
+    .. change::
+        :tags: bug, schema
+        :tickets: 8100, 8101
+
+        Fixed bugs involving the :paramref:`.Table.include_columns` and the
+        :paramref:`.Table.resolve_fks` parameters on :class:`.Table`; these
+        little-used parameters were apparently not working for columns that refer
+        to foreign key constraints.
+
+        In the first case, not-included columns that refer to foreign keys would
+        still attempt to create a :class:`.ForeignKey` object, producing errors
+        when attempting to resolve the columns for the foreign key constraint
+        within reflection; foreign key constraints that refer to skipped columns
+        are now omitted from the table reflection process in the same way as
+        occurs for :class:`.Index` and :class:`.UniqueConstraint` objects with the
+        same conditions. No warning is produced however, as we likely want to
+        remove the include_columns warnings for all constraints in 2.0.
+
+        In the latter case, the production of table aliases or subqueries would
+        fail on an FK related table not found despite the presence of
+        ``resolve_fks=False``; the logic has been repaired so that if a related
+        table is not found, the :class:`.ForeignKey` object is still proxied to the
+        aliased table or subquery (these :class:`.ForeignKey` objects are normally
+        used in the production of join conditions), but it is sent with a flag that
+        it's not resolvable. The aliased table / subquery will then work normally,
+        with the exception that it cannot be used to generate a join condition
+        automatically, as the foreign key information is missing. This was already
+        the behavior for such foreign key constraints produced using non-reflection
+        methods, such as joining :class:`.Table` objects from different
+        :class:`.MetaData` collections.
+
+    .. change::
+        :tags: bug, sql
+        :tickets: 8113
+
+        Adjusted the fix made for :ticket:`8056` which adjusted the escaping of
+        bound parameter names with special characters such that the escaped names
+        were translated after the SQL compilation step, which broke a published
+        recipe on the FAQ illustrating how to merge parameter names into the string
+        output of a compiled SQL string. The change restores the escaped names that
+        come from ``compiled.params`` and adds a conditional parameter to
+        :meth:`.SQLCompiler.construct_params` named ``escape_names`` that defaults
+        to ``True``, restoring the old behavior by default.
+
+    .. change::
+        :tags: bug, schema, mssql
+        :tickets: 8111
+
+        Fixed issue where :class:`.Table` objects that made use of IDENTITY columns
+        with a :class:`.Numeric` datatype would produce errors when attempting to
+        reconcile the "autoincrement" column, preventing construction of the
+        :class:`.Column` from using the :paramref:`.Column.autoincrement` parameter
+        as well as emitting errors when attempting to invoke an :class:`.Insert`
+        construct.
+
+
+    .. change::
+        :tags: bug, extensions
+        :tickets: 8133
+
+        Fixed bug in :class:`.Mutable` where pickling and unpickling of an ORM
+        mapped instance would not correctly restore state for mappings that
+        contained multiple :class:`.Mutable`-enabled attributes.
+
+.. changelog::
+    :version: 1.4.37
+    :released: May 31, 2022
+
+    .. change::
+        :tags: bug, mssql
+        :tickets: 8062
+
+        Fix issue where a password with a leading "{" would result in login failure.
+
+    .. change::
+        :tags: bug, sql, postgresql, sqlite
+        :tickets: 8014
+
+        Fixed bug where the PostgreSQL
+        :meth:`_postgresql.Insert.on_conflict_do_update` method and the SQLite
+        :meth:`_sqlite.Insert.on_conflict_do_update` method would both fail to
+        correctly accommodate a column with a separate ".key" when specifying the
+        column using its key name in the dictionary passed to
+        :paramref:`_postgresql.Insert.on_conflict_do_update.set_`, as well as if
+        the :attr:`_postgresql.Insert.excluded` collection were used as the
+        dictionary directly.
+
+    .. change::
+        :tags: bug, sql
+        :tickets: 8073
+
+        An informative error is raised for the use case where
+        :meth:`.Insert.from_select` is being passed a "compound select" object such
+        as a UNION, yet the INSERT statement needs to append additional columns to
+        support Python-side or explicit SQL defaults from the table metadata. In
+        this case a subquery of the compound object should be passed.
+
+    .. change::
+        :tags: bug, orm
+        :tickets: 8064
+
+        Fixed issue where using a :func:`_orm.column_property` construct containing
+        a subquery against an already-mapped column attribute would not correctly
+        apply ORM-compilation behaviors to the subquery, including that the "IN"
+        expression added for a single-table inherits expression would fail to be
+        included.
+
+    .. change::
+        :tags: bug, orm
+        :tickets: 8001
+
+        Fixed issue where ORM results would apply incorrect key names to the
+        returned :class:`.Row` objects in the case where the set of columns to be
+        selected were changed, such as when using
+        :meth:`.Select.with_only_columns`.
+
+    .. change::
+        :tags: bug, mysql
+        :tickets: 7966
+
+        Further adjustments to the MySQL PyODBC dialect to allow for complete
+        connectivity, which was previously still not working despite fixes in
+        :ticket:`7871`.
+
+    .. change::
+        :tags: bug, sql
+        :tickets: 7979
+
+        Fixed an issue where using :func:`.bindparam` with no explicit data or type
+        given could be coerced into the incorrect type when used in expressions
+        such as when using :meth:`.ARRAY.Comparator.any` and
+        :meth:`.ARRAY.Comparator.all`.
+
+
+    .. change::
+        :tags: bug, oracle
+        :tickets: 8053
+
+        Fixed SQL compiler issue where the "bind processing" function for a bound
+        parameter would not be correctly applied to a bound value if the bound
+        parameter's name were "escaped". Concretely, this applies, among other
+        cases, to Oracle when a :class:`.Column` has a name that itself requires
+        quoting, such that the quoting-required name is then used for the bound
+        parameters generated within DML statements, and the datatype in use
+        requires bind processing, such as the :class:`.Enum` datatype.
+
+    .. change::
+        :tags: bug, mssql, reflection
+        :tickets: 8035
+
+        Explicitly specify the collation when reflecting table columns using
+        MSSQL to prevent "collation conflict" errors.
+
+    .. change::
+        :tags: bug, orm, oracle, postgresql
+        :tickets: 8056
+
+        Fixed bug, likely a regression from 1.3, where usage of column names that
+        require bound parameter escaping, more concretely when using Oracle with
+        column names that require quoting such as those that start with an
+        underscore, or in less common cases with some PostgreSQL drivers when using
+        column names that contain percent signs, would cause the ORM versioning
+        feature to not work correctly if the versioning column itself had such a
+        name, as the ORM assumes certain bound parameter naming conventions that
+        were being interfered with via the quotes. This issue is related to
+        :ticket:`8053` and essentially revises the approach towards fixing this,
+        revising the original issue :ticket:`5653` that created the initial
+        implementation for generalized bound-parameter name quoting.
+
+    .. change::
+        :tags: bug, mysql
+        :tickets: 8036
+
+        Added disconnect code for MySQL error 4031, introduced in MySQL >= 8.0.24,
+        indicating connection idle timeout exceeded. In particular this repairs an
+        issue where pre-ping could not reconnect on a timed-out connection. Pull
+        request courtesy valievkarim.
+
+    .. change::
+        :tags: bug, sql
+        :tickets: 8018
+
+        An informative error is raised if two individual :class:`.BindParameter`
+        objects share the same name, yet one is used within an "expanding" context
+        (typically an IN expression) and the other is not; mixing the same name in
+        these two different styles of usage is not supported and typically the
+        ``expanding=True`` parameter should be set on the parameters that are to
+        receive list values outside of IN expressions (where ``expanding`` is set
+        by default).
+
+    .. change::
+        :tags: bug, engine, tests
+        :tickets: 8019
+
+        Fixed issue where support for logging "stacklevel" implemented in
+        :ticket:`7612` required adjustment to work with recently released Python
+        3.11.0b1, also repairs the unit tests which tested this feature.
+
+    .. change::
+        :tags: usecase, oracle
+        :tickets: 8066
+
+        Added two new error codes for Oracle disconnect handling to support early
+        testing of the new "python-oracledb" driver released by Oracle.
+
+.. changelog::
     :version: 1.4.36
     :released: April 26, 2022
 
@@ -30,7 +307,7 @@ This document details individual issue-level changes made throughout
         :tickets: 7936
 
         Fixed regression where the change made for :ticket:`7861`, released in
-        version 1.4.33, that brought the :class:`.Insert` construct to be partially
+        version 1.4.33, that brought the :class:`_sql.Insert` construct to be partially
         recognized as an ORM-enabled statement did not properly transfer the
         correct mapper / mapped table state to the :class:`.Session`, causing the
         :meth:`.Session.get_bind` method to fail for a :class:`.Session` that was
@@ -54,7 +331,7 @@ This document details individual issue-level changes made throughout
         :tags: bug, postgresql
         :tickets: 6515
 
-        Fixed bug in :class:`.ARRAY` datatype in combination with :class:`.Enum` on
+        Fixed bug in :class:`_sqltypes.ARRAY` datatype in combination with :class:`.Enum` on
         PostgreSQL where using the ``.any()`` or ``.all()`` methods to render SQL
         ANY() or ALL(), given members of the Python enumeration as arguments, would
         produce a type adaptation failure on all drivers.
@@ -83,7 +360,7 @@ This document details individual issue-level changes made throughout
         :tickets: 7930
 
         Fixed an issue in the psycopg2 dialect when using the
-        :paramref:`.create_engine.pool_pre_ping` parameter which would cause
+        :paramref:`_sa.create_engine.pool_pre_ping` parameter which would cause
         user-configured ``AUTOCOMMIT`` isolation level to be inadvertently reset by
         the "ping" handler.
 
@@ -101,15 +378,15 @@ This document details individual issue-level changes made throughout
         :tags: bug, engine
         :tickets: 7953
 
-        Added a warning regarding a bug which exists in the :meth:`.Result.columns`
-        method when passing 0 for the index in conjunction with a :class:`.Result`
+        Added a warning regarding a bug which exists in the :meth:`_result.Result.columns`
+        method when passing 0 for the index in conjunction with a :class:`_result.Result`
         that will return a single ORM entity, which indicates that the current
-        behavior of :meth:`.Result.columns` is broken in this case as the
-        :class:`.Result` object will yield scalar values and not :class:`.Row`
+        behavior of :meth:`_result.Result.columns` is broken in this case as the
+        :class:`_result.Result` object will yield scalar values and not :class:`.Row`
         objects. The issue will be fixed in 2.0, which would be a
         backwards-incompatible change for code that relies on the current broken
         behavior. Code which wants to receive a collection of scalar values should
-        use the :meth:`.Result.scalars` method, which will return a new
+        use the :meth:`_result.Result.scalars` method, which will return a new
         :class:`.ScalarResult` object that yields non-row scalar objects.
 
 
@@ -195,7 +472,7 @@ This document details individual issue-level changes made throughout
         :tickets: 7878
 
         Fixed regression caused by :ticket:`7861` where invoking an
-        :class:`.Insert` construct which contained ORM entities directly via
+        :class:`_sql.Insert` construct which contained ORM entities directly via
         :meth:`_orm.Session.execute` would fail.
 
     .. change::
@@ -222,8 +499,8 @@ This document details individual issue-level changes made throughout
         and COMMIT log messages do not actually indicate a real transaction when
         the AUTOCOMMIT isolation level is in use; messaging has been extended to
         include the BEGIN message itself, and the messaging has also been fixed to
-        accommodate when the :class:`.Engine` level
-        :paramref:`.create_engine.isolation_level` parameter was used directly.
+        accommodate when the :class:`_engine.Engine` level
+        :paramref:`_sa.create_engine.isolation_level` parameter was used directly.
 
     .. change::
         :tags: bug, mssql, regression
@@ -310,7 +587,7 @@ This document details individual issue-level changes made throughout
         :tags: usecase, engine
         :tickets: 7877, 7815
 
-        Added new parameter :paramref:`.Engine.dispose.close`, defaulting to True.
+        Added new parameter :paramref:`_engine.Engine.dispose.close`, defaulting to True.
         When False, the engine disposal does not touch the connections in the old
         pool at all, simply dropping the pool and replacing it. This use case is so
         that when the original pool is transferred from a parent process, the
@@ -335,7 +612,7 @@ This document details individual issue-level changes made throughout
 
         Added new attributes :attr:`.UpdateBase.returning_column_descriptions` and
         :attr:`.UpdateBase.entity_description` to allow for inspection of ORM
-        attributes and entities that are installed as part of an :class:`.Insert`,
+        attributes and entities that are installed as part of an :class:`_sql.Insert`,
         :class:`.Update`, or :class:`.Delete` construct. The
         :attr:`.Select.column_descriptions` accessor is also now implemented for
         Core-only selectables.
@@ -1634,15 +1911,15 @@ This document details individual issue-level changes made throughout
         :tags: bug, orm
         :tickets: 7128
 
-        Fixed bug where iterating a :class:`.Result` from a :class:`_orm.Session`
+        Fixed bug where iterating a :class:`_result.Result` from a :class:`_orm.Session`
         after that :class:`_orm.Session` were closed would partially attach objects
         to that session in an essentially invalid state. It now raises an exception
         with a link to new documentation if an **un-buffered** result is iterated
         from a :class:`_orm.Session` that was closed or otherwise had the
-        :meth:`_orm.Session.expunge_all` method called after that :class:`.Result`
+        :meth:`_orm.Session.expunge_all` method called after that :class:`_result.Result`
         was generated. The ``prebuffer_rows`` execution option, as is used
         automatically by the asyncio extension for client-side result sets, may be
-        used to produce a :class:`.Result` where the ORM objects are prebuffered,
+        used to produce a :class:`_result.Result` where the ORM objects are prebuffered,
         and in this case iterating the result will produce a series of detached
         objects.
 
@@ -3480,7 +3757,7 @@ This document details individual issue-level changes made throughout
         :tickets: 6361
 
         Fixed issue where usage of an explicit :class:`.Sequence` would produce
-        inconsistent "inline" behavior for an :class:`.Insert` construct that
+        inconsistent "inline" behavior for an :class:`_sql.Insert` construct that
         includes multiple values phrases; the first seq would be inline but
         subsequent ones would be "pre-execute", leading to inconsistent sequence
         ordering. The sequence expressions are now fully inline.
@@ -4927,7 +5204,7 @@ This document details individual issue-level changes made throughout
         :tags: bug, engine, sqlite
         :tickets: 5845
 
-        Fixed bug in the 2.0 "future" version of :class:`.Engine` where emitting
+        Fixed bug in the 2.0 "future" version of :class:`_engine.Engine` where emitting
         SQL during the :meth:`.EngineEvents.begin` event hook would cause a
         re-entrant (recursive) condition due to autobegin, affecting among other
         things the recipe documented for SQLite to allow for savepoints and

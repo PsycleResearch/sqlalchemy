@@ -1,6 +1,7 @@
 # -*- encoding: utf-8
 import datetime
 import decimal
+import random
 
 from sqlalchemy import Column
 from sqlalchemy import DDL
@@ -24,6 +25,7 @@ from sqlalchemy.dialects import mssql
 from sqlalchemy.dialects.mssql import base
 from sqlalchemy.dialects.mssql.information_schema import CoerceUnicode
 from sqlalchemy.dialects.mssql.information_schema import tables
+from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateIndex
 from sqlalchemy.testing import AssertsCompiledSQL
 from sqlalchemy.testing import ComparesTables
@@ -34,6 +36,7 @@ from sqlalchemy.testing import in_
 from sqlalchemy.testing import is_
 from sqlalchemy.testing import is_true
 from sqlalchemy.testing import mock
+from sqlalchemy.testing import provision
 
 
 class ReflectionTest(fixtures.TestBase, ComparesTables, AssertsCompiledSQL):
@@ -357,6 +360,56 @@ class ReflectionTest(fixtures.TestBase, ComparesTables, AssertsCompiledSQL):
                     c2.exec_driver_sql(
                         "drop table #myveryveryuniquetemptablename"
                     )
+
+    @testing.fixture
+    def temp_db_alt_collation_fixture(
+        self, connection_no_trans, testing_engine
+    ):
+        temp_db_name = "%s_different_collation" % (
+            provision.FOLLOWER_IDENT or "default"
+        )
+        cnxn = connection_no_trans.execution_options(
+            isolation_level="AUTOCOMMIT"
+        )
+        cnxn.exec_driver_sql("DROP DATABASE IF EXISTS %s" % temp_db_name)
+        cnxn.exec_driver_sql(
+            "CREATE DATABASE %s COLLATE Danish_Norwegian_CI_AS" % temp_db_name
+        )
+        eng = testing_engine(
+            url=testing.db.url.set(database=temp_db_name),
+            options=dict(poolclass=NullPool, future=True),
+        )
+
+        yield eng
+
+        cnxn.exec_driver_sql("DROP DATABASE IF EXISTS %s" % temp_db_name)
+
+    def test_global_temp_different_collation(
+        self, temp_db_alt_collation_fixture
+    ):
+        """test #8035"""
+
+        tname = "##foo%s" % (random.randint(1, 1000000),)
+
+        with temp_db_alt_collation_fixture.connect() as conn:
+            conn.exec_driver_sql(
+                "CREATE TABLE %s (id int primary key)" % (tname,)
+            )
+            conn.commit()
+
+            eq_(
+                inspect(conn).get_columns(tname),
+                [
+                    {
+                        "name": "id",
+                        "type": testing.eq_type_affinity(sqltypes.INTEGER),
+                        "nullable": False,
+                        "default": None,
+                        "autoincrement": False,
+                    }
+                ],
+            )
+            Table(tname, MetaData(), autoload_with=conn)
 
     def test_db_qualified_items(self, metadata, connection):
         Table("foo", metadata, Column("id", Integer, primary_key=True))

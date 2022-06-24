@@ -1264,7 +1264,7 @@ class Column(DialectKWArgs, SchemaItem, ColumnClause):
             value automatically for this column, which will be accessible
             after the statement is invoked via the
             :attr:`.CursorResult.inserted_primary_key` attribute upon the
-            :class:`.Result` object.   This also applies towards use of the
+            :class:`_result.Result` object.   This also applies towards use of the
             ORM when ORM-mapped objects are persisted to the database,
             indicating that a new integer primary key will be available to
             become part of the :term:`identity key` for that object.  This
@@ -1311,9 +1311,9 @@ class Column(DialectKWArgs, SchemaItem, ColumnClause):
                 Column('id', ForeignKey('other.id'),
                             primary_key=True, autoincrement='ignore_fk')
 
-            It is typically not desirable to have "autoincrement" enabled on a
-            column that refers to another via foreign key, as such a column is
-            required to refer to a value that originates from elsewhere.
+          It is typically not desirable to have "autoincrement" enabled on a
+          column that refers to another via foreign key, as such a column is
+          required to refer to a value that originates from elsewhere.
 
           The setting has these effects on columns that meet the
           above criteria:
@@ -1351,9 +1351,9 @@ class Column(DialectKWArgs, SchemaItem, ColumnClause):
             using a method specific to the database driver in use:
 
             * MySQL, SQLite - calling upon ``cursor.lastrowid()``
-             (see
-             `https://www.python.org/dev/peps/pep-0249/#lastrowid
-             <https://www.python.org/dev/peps/pep-0249/#lastrowid>`_)
+              (see
+              `https://www.python.org/dev/peps/pep-0249/#lastrowid
+              <https://www.python.org/dev/peps/pep-0249/#lastrowid>`_)
             * PostgreSQL, SQL Server, Oracle - use RETURNING or an equivalent
               construct when rendering an INSERT statement, and then retrieving
               the newly generated primary key values after execution
@@ -1377,7 +1377,6 @@ class Column(DialectKWArgs, SchemaItem, ColumnClause):
             primary key values for an "executemany", such as the psycopg2
             "fast insertmany" feature.  Such features are very new and
             may not yet be well covered in documentation.
-
 
         :param default: A scalar, Python callable, or
             :class:`_expression.ColumnElement` expression representing the
@@ -2050,10 +2049,19 @@ class Column(DialectKWArgs, SchemaItem, ColumnClause):
         information is not transferred.
 
         """
+
         fk = [
-            ForeignKey(f.column, _constraint=f.constraint)
-            for f in self.foreign_keys
+            ForeignKey(
+                col if col is not None else f._colspec,
+                _unresolvable=col is None,
+                _constraint=f.constraint,
+            )
+            for f, col in [
+                (fk, fk._resolve_column(raiseerr=False))
+                for fk in self.foreign_keys
+            ]
         ]
+
         if name is None and self.name is None:
             raise exc.InvalidRequestError(
                 "Cannot initialize a sub-selectable"
@@ -2153,6 +2161,7 @@ class ForeignKey(DialectKWArgs, SchemaItem):
         link_to_name=False,
         match=None,
         info=None,
+        _unresolvable=False,
         **dialect_kw
     ):
         r"""
@@ -2226,6 +2235,7 @@ class ForeignKey(DialectKWArgs, SchemaItem):
         """
 
         self._colspec = coercions.expect(roles.DDLReferredColumnRole, column)
+        self._unresolvable = _unresolvable
 
         if isinstance(self._colspec, util.string_types):
             self._table_column = None
@@ -2412,6 +2422,11 @@ class ForeignKey(DialectKWArgs, SchemaItem):
 
         parenttable = self.parent.table
 
+        if self._unresolvable:
+            schema, tname, colname = self._column_tokens
+            tablekey = _get_table_key(tname, schema)
+            return parenttable, tablekey, colname
+
         # assertion
         # basically Column._make_proxy() sends the actual
         # target Column to the ForeignKey object, so the
@@ -2500,11 +2515,17 @@ class ForeignKey(DialectKWArgs, SchemaItem):
 
         """
 
+        return self._resolve_column()
+
+    def _resolve_column(self, raiseerr=True):
+
         if isinstance(self._colspec, util.string_types):
 
             parenttable, tablekey, colname = self._resolve_col_tokens()
 
-            if tablekey not in parenttable.metadata:
+            if self._unresolvable or tablekey not in parenttable.metadata:
+                if not raiseerr:
+                    return None
                 raise exc.NoReferencedTableError(
                     "Foreign key associated with column '%s' could not find "
                     "table '%s' with which to generate a "
@@ -2513,6 +2534,8 @@ class ForeignKey(DialectKWArgs, SchemaItem):
                     tablekey,
                 )
             elif parenttable.key not in parenttable.metadata:
+                if not raiseerr:
+                    return None
                 raise exc.InvalidRequestError(
                     "Table %s is no longer associated with its "
                     "parent MetaData" % parenttable
@@ -3726,8 +3749,8 @@ class ForeignKeyConstraint(ColumnCollectionConstraint):
                 )
             else:
                 # e.g. FOREIGN KEY (a) REFERENCES r (b, c)
-                # paraphrasing https://www.postgresql.org/docs/9.2/static/\
-                # ddl-constraints.html
+                # paraphrasing
+                # https://www.postgresql.org/docs/current/static/ddl-constraints.html
                 raise exc.ArgumentError(
                     "ForeignKeyConstraint number "
                     "of constrained columns must match the number of "
@@ -4058,7 +4081,11 @@ class PrimaryKeyConstraint(ColumnCollectionConstraint):
     def _autoincrement_column(self):
         def _validate_autoinc(col, autoinc_true):
             if col.type._type_affinity is None or not issubclass(
-                col.type._type_affinity, type_api.INTEGERTYPE._type_affinity
+                col.type._type_affinity,
+                (
+                    type_api.INTEGERTYPE._type_affinity,
+                    type_api.NUMERICTYPE._type_affinity,
+                ),
             ):
                 if autoinc_true:
                     raise exc.ArgumentError(

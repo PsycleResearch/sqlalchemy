@@ -384,7 +384,7 @@ at once, such as::
     :ref:`multipart_schema_names` - describes use of dotted schema names
     with the SQL Server dialect.
 
-    :ref:`schema_table_reflection`
+    :ref:`metadata_reflection_schemas`
 
 
 .. _schema_metadata_schema_name:
@@ -557,6 +557,7 @@ Column, Table, MetaData API
 ---------------------------
 
 .. attribute:: sqlalchemy.schema.BLANK_SCHEMA
+    :noindex:
 
     Symbol indicating that a :class:`_schema.Table` or :class:`.Sequence`
     should have 'None' for its schema, even if the parent
@@ -573,6 +574,7 @@ Column, Table, MetaData API
     .. versionadded:: 1.0.14
 
 .. attribute:: sqlalchemy.schema.RETAIN_SCHEMA
+    :noindex:
 
     Symbol indicating that a :class:`_schema.Table`, :class:`.Sequence`
     or in some cases a :class:`_schema.ForeignKey` object, in situations

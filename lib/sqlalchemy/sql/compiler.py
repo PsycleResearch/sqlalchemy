@@ -490,7 +490,9 @@ class Compiled(object):
 
         return self.string or ""
 
-    def construct_params(self, params=None, extracted_parameters=None):
+    def construct_params(
+        self, params=None, extracted_parameters=None, escape_names=True
+    ):
         """Return the bind params for this compiled object.
 
         :param params: a dict of string/object pairs whose values will
@@ -898,8 +900,12 @@ class SQLCompiler(Compiled):
 
     @util.memoized_property
     def _bind_processors(self):
+
         return dict(
-            (key, value)
+            (
+                key,
+                value,
+            )
             for key, value in (
                 (
                     self.bind_names[bindparam],
@@ -928,10 +934,11 @@ class SQLCompiler(Compiled):
         _group_number=None,
         _check=True,
         extracted_parameters=None,
+        escape_names=True,
     ):
         """return a dictionary of bind parameter keys and values"""
 
-        has_escaped_names = bool(self.escaped_bind_names)
+        has_escaped_names = escape_names and bool(self.escaped_bind_names)
 
         if extracted_parameters:
             # related the bound parameters collected in the original cache key
@@ -1131,8 +1138,9 @@ class SQLCompiler(Compiled):
           N as a bound parameter.
 
         """
+
         if parameters is None:
-            parameters = self.construct_params()
+            parameters = self.construct_params(escape_names=False)
 
         expanded_parameters = {}
         if self.positional:
@@ -1173,10 +1181,11 @@ class SQLCompiler(Compiled):
                 if self.escaped_bind_names
                 else name
             )
+
             parameter = self.binds[name]
             if parameter in self.literal_execute_params:
                 if escaped_name not in replacement_expressions:
-                    value = parameters.pop(escaped_name)
+                    value = parameters.pop(name)
 
                 replacement_expressions[
                     escaped_name
@@ -1195,7 +1204,12 @@ class SQLCompiler(Compiled):
                     # process it. the single name is being replaced with
                     # individual numbered parameters for each value in the
                     # param.
-                    values = parameters.pop(escaped_name)
+                    #
+                    # note we are also inserting *escaped* parameter names
+                    # into the given dictionary.   default dialect will
+                    # use these param names directly as they will not be
+                    # in the escaped_bind_names dictionary.
+                    values = parameters.pop(name)
 
                     leep = self._literal_execute_expanding_parameter
                     to_update, replacement_expr = leep(
@@ -1293,15 +1307,7 @@ class SQLCompiler(Compiled):
     @util.memoized_property
     def _within_exec_param_key_getter(self):
         getter = self._key_getters_for_crud_column[2]
-        if self.escaped_bind_names:
-
-            def _get(obj):
-                key = getter(obj)
-                return self.escaped_bind_names.get(key, key)
-
-            return _get
-        else:
-            return getter
+        return getter
 
     @util.memoized_property
     @util.preload_module("sqlalchemy.engine.result")
@@ -2459,6 +2465,15 @@ class SQLCompiler(Compiled):
                     raise exc.CompileError(
                         "Bind parameter '%s' conflicts with "
                         "unique bind parameter of the same name" % name
+                    )
+                elif existing.expanding != bindparam.expanding:
+                    raise exc.CompileError(
+                        "Can't reuse bound parameter name '%s' in both "
+                        "'expanding' (e.g. within an IN expression) and "
+                        "non-expanding contexts.  If this parameter is to "
+                        "receive a list/array value, set 'expanding=True' on "
+                        "it for expressions that aren't IN, otherwise use "
+                        "a different parameter name." % (name,)
                     )
                 elif existing._is_crud or bindparam._is_crud:
                     raise exc.CompileError(
@@ -4319,7 +4334,9 @@ class DDLCompiler(Compiled):
     def type_compiler(self):
         return self.dialect.type_compiler
 
-    def construct_params(self, params=None, extracted_parameters=None):
+    def construct_params(
+        self, params=None, extracted_parameters=None, escape_names=True
+    ):
         return None
 
     def visit_ddl(self, ddl, **kwargs):
